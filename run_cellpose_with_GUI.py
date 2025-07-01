@@ -456,7 +456,8 @@ class App:
                 pattern = os.path.join(mask_root, "*", f"{well}_{pos}_merged_*_cp_masks.tif")
                 found = glob(pattern)
                 if found:
-                    groups[key].append(("mask", found[0]))
+                    relative_mask_path = os.path.relpath(os.path.normpath(found[0]), start=directory)
+                    groups[key].append(("mask", relative_mask_path))
         return groups
 
     def _process_with_cellpose(self, dirs, process_with_cellProfiler=True): 
