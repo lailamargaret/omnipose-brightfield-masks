@@ -51,7 +51,7 @@ def run_on_subset(images_subset, model_info_array, savedir, save_tif, save_flows
     subprocess.run(cmd)
 
 def run_omnipose(directory_path, model_info_array, save_tif, save_flows, save_outlines, num_threads=4):
-    print(f"run_omnipose called {directory_path}")
+    print(f"Starting omnipose proccessing in: {directory_path}")
 
     savedir = f"{directory_path}/model_outputs/"+"_".join(model_info_array[0].split("_")[-8:])+f"_{model_info_array[1]}_{model_info_array[2]}"
     os.makedirs(savedir, exist_ok=True)
