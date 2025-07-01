@@ -18,6 +18,8 @@ import process_masks
 import time
 import threading
 import queue
+import re
+from glob import glob
 
 MAX_CP_WORKERS = 8
 
@@ -117,7 +119,9 @@ class App:
         Button(frame_dirs, text="Process with Cellpose", command=lambda: self.process_with_cellpose(False)).pack(
             pady=(0, 10))
         # Button(frame_dirs, text="Process with Cellpose + CellProfiler", command=self.process_with_cellpose).pack(
-        #     pady=(0, 10))
+        #      pady=(0, 10))
+        Button(frame_dirs, text="Process with CellProfiler", command=lambda: self.process_with_cellprofiler()).pack(
+            pady=(0, 10))
 
     def add_directories(self):
         dir_path = filedialog.askdirectory(title="Select Directories", mustexist=True)
@@ -360,7 +364,7 @@ class App:
             # roll-up CSVs for this channel as soon as it’s done
             self.process_csv(directory, channel)
             print(f"[OK] Channel {channel} complete\n")
-
+    
     def process_file(self, full_filepath):
         try:
             mask_filename = full_filepath.split(".ti")[0] + "_masks.png"
@@ -389,112 +393,71 @@ class App:
 
         dirs = list(self.selected_dirs.keys())
         Thread(target=self._process_with_cellpose, args=(dirs, process_with_cellProfiler)).start()
+    
+    def process_with_cellprofiler(self):
+            if not self.selected_dirs:
+                messagebox.showwarning("No Directories Selected", "Please add at least one directory to process.")
+                return
 
-    def _process_with_cellpose_(self, dirs, process_with_cellProfiler=True):
-        #model_name = "reRefinedRosettes-trained-on-day-7-plate5-DAPI"
-        #self.model = models.CellposeModel(gpu=True, model_type=model_name)
-
-        total_dirs = len(dirs)
-        processed_dirs = 0
-
-        for dir in dirs:
-            print(f"Processing directory: {dir}")
-            self.status_label.config(text=f"Processing directory: {dir}")
-            inputDir = dir
+            dirs = list(self.selected_dirs.keys())
             
-            result = count_images(dir)
-            total_files = result[2]
-            # image_files = []
-                # for root, _, filenames in os.walk(dir):
-                #     image_files.extend([os.path.join(root, f) for f in filenames if
-                #                         f.endswith((".tif", ".tiff"))
-                #                         and "Bright Field" in f and "masks" not in f and "Wells.tif" not in f])
-                # total_files = len(image_files)
-                # processed_files = 0
+            for dir in dirs:
+                self.call_cellprofiler_rainbow_pipeline(dir)
 
-            # for image_file in image_files:
-            #     self.process_file(image_file)
-            #     processed_files += 1
-            #     status_text = f"Processing: {dir}\nDirectory: {processed_dirs + 1}/{total_dirs}\nFiles: {processed_files}/{total_files}"
-            #     self.status_label.config(text=status_text)
-            #     self.root.update()
-            #     print(f"Processed {processed_files}/{total_files} files in directory: {dir}")
 
-            # processed_dirs += 1
+            #Thread(target=self._process_with_cellpose, args=(dirs, process_with_cellProfiler)).start()
+    
+    def call_cellprofiler_rainbow_pipeline(self, directory):
+        print(f"Processing directory: {directory}")
+        groups = self.get_well_groups(directory)
 
-            try:
-                print(f"Starting {inputDir}")
-                output_dir = os.path.join(inputDir, "bf_merged")
-                os.makedirs(output_dir, exist_ok=True)
-                #print(f'Merged images being saved at {output_dir}')
 
-                max_queue_size = 1
-                dir_queue = queue.Queue(maxsize=max_queue_size)
-                lock = threading.Lock()
-
-                print(f'Starting consumer thread')
-                consumer_thread = threading.Thread(target=omnipose_brightfield_forgui.consumer, args=(output_dir, lock, dir_queue))
-                consumer_thread.start()
-
-                print(f'Starting producer')
-                subdir = os.path.basename(inputDir)
-                base_input = os.path.dirname(inputDir)
-                omnipose_brightfield_forgui.producer(base_input, subdir, output_dir, dir_queue)
-
-                dir_queue.put(None)
-                consumer_thread.join()
-
-            except Exception as e:
-                print(f'Failed {inputDir}: {e}')
         
-        processed_dirs += 1
-        self.status_label.config(text="Processing complete.")
-        messagebox.showinfo("Processing Complete", "Cellpose processing is complete.")
-        print("Cellpose processing is complete.")
+    def get_well_groups(self, directory):
+        """
+        Return a dict keyed by (well, channel) → list[(core, filename)].
 
-    def _process_with_cellpose__(self, dirs, process_with_cellProfiler=True):
-        total_dirs = len(dirs)
-        dir_queue = queue.Queue()
+        core = "well_pos_id"  (e.g. A01_pos1_001)
+        channel is one of self.pipeline_paths (GFP / CY5 / RFP / DAPI / Bright Field).
+        """
+        z_by_channel = {
+        "Bright Field": "Z0",
+        "DAPI": "Z0",
+        "GFP": "Z1",
+        "RFP": "Z1",
+        "CY5": "Z2"}
+        groups = {}
+        for fname in os.listdir(directory):
+            if not fname.lower().endswith((".tif", ".tiff", ".png")):
+                continue
 
-        def worker():
-            for idx, inputDir in enumerate(dirs):
-                self.status_label.config(text=f"Processing directory {idx+1}/{total_dirs}: {inputDir}")
-                self.root.update()
+            parts = fname.split('_')
+            if len(parts) < 6:
+                continue                    # malformed name
 
-                try:
-                    output_dir = os.path.join(inputDir, "bf_merged")
-                    os.makedirs(output_dir, exist_ok=True)
+            well, channel, id_part = parts[0], parts[2], parts[4]
+            step = parts[5].split('.')[0]   # strip extension
 
-                    # Count total image files
-                    result = count_images(inputDir)
-                    total_files = result[2]
+            full_pos = parts[1]
+            pos, z = full_pos.split("Z")
+            z = "Z" + z
 
-                    # Launch consumer thread
-                    lock = threading.Lock()
-                    image_queue = queue.Queue(maxsize=1)
-                    consumer_thread = threading.Thread(
-                        target=omnipose_brightfield_forgui.consumer,
-                        args=(output_dir, lock, image_queue)
-                    )
-                    consumer_thread.start()
+            core = f"{well}_{pos}_{id_part}"
+            expected_z = z_by_channel.get(channel)
+            if z != expected_z:
+                continue
 
-                    # Producer adds images
-                    subdir = os.path.basename(inputDir)
-                    base_input = os.path.dirname(inputDir)
-                    omnipose_brightfield_forgui.producer(base_input, subdir, output_dir, image_queue)
-                    image_queue.put(None)
-                    consumer_thread.join()
-
-                    self.status_label.config(text=f"Finished {inputDir}\nFiles processed: {total_files}")
-                    self.root.update()
-                except Exception as e:
-                    self.status_label.config(text=f"Failed {inputDir}: {e}")
-                    self.root.update()
-
-            self.status_label.config(text="Processing complete.")
-            messagebox.showinfo("Processing Complete", "Cellpose processing is complete.")
-
-        threading.Thread(target=worker).start()
+            groups.setdefault((well, pos), []).append((channel, fname))
+        
+        mask_root = os.path.join(directory, "bf_merged", "model_outputs")
+        if os.path.isdir(mask_root):
+            for key in groups:
+                well, pos = key
+                pattern = os.path.join(mask_root, "*", f"{well}_{pos}_merged_*_cp_masks.tif")
+                found = glob(pattern)
+                if found:
+                    groups[key].append(("mask", found[0]))
+        return groups
 
     def _process_with_cellpose(self, dirs, process_with_cellProfiler=True): 
             #model_name = "reRefinedRosettes-trained-on-day-7-plate5-DAPI"
