@@ -20,6 +20,7 @@ import threading
 import queue
 import re
 from glob import glob
+import csv
 
 MAX_CP_WORKERS = 8
 
@@ -394,6 +395,20 @@ class App:
         dirs = list(self.selected_dirs.keys())
         Thread(target=self._process_with_cellpose, args=(dirs, process_with_cellProfiler)).start()
     
+    def export_file_list(self, key, image_list, output_dir):
+        os.makedirs(output_dir, exist_ok=True)
+
+        well, pos = key
+        filename = f"{well}_{pos}_files.txt"
+        outpath = os.path.join(output_dir, filename)
+
+        with open(outpath, "w", encoding="utf-8") as f:
+            for _, rel_path in image_list:
+                f.write(f"{rel_path}\n")
+
+        return outpath
+
+    
     def process_with_cellprofiler(self):
             if not self.selected_dirs:
                 messagebox.showwarning("No Directories Selected", "Please add at least one directory to process.")
@@ -402,23 +417,74 @@ class App:
             dirs = list(self.selected_dirs.keys())
             
             for dir in dirs:
+                print(f'Starting CellProfiler for: {dir}')
                 self.call_cellprofiler_rainbow_pipeline(dir)
 
 
             #Thread(target=self._process_with_cellpose, args=(dirs, process_with_cellProfiler)).start()
     
     def call_cellprofiler_rainbow_pipeline(self, directory):
-        print(f"Processing directory: {directory}")
-        groups = self.get_well_groups(directory)
+        groups = self.get_well_groups(directory) #(well, pos): (channel, filename)
+        results_dir = os.path.join(directory, "cellprofiler_results")
+
+        filelist_dir =  os.path.join(results_dir, "filelists")
+
+        
+        wellpos = ("A1", "pos1")
+
+        file_list = self.export_file_list(wellpos, groups[wellpos], filelist_dir)
+        
+
+        pipeline_path = "Z:\Wellslab\ToolsAndScripts\OmniposeBrightfieldMasks\minivillage_pipeline_bf_masks_standardinput.cppipe"
+
+        cp_exe = r"C:\Program Files\CellProfiler\CellProfiler.exe"
+        cmd    = [
+                cp_exe, "-c", "-r",
+                "-p", self.pipeline_paths[channel],
+                "--file-list", file_list,
+        ]
+        try:
+            subprocess.run(cmd, cwd=os.path.dirname(cp_exe), check=True)
+            print(f"[DONE] {well}/{channel}")
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"[ERR]  {well}/{channel}: {e}")
+            return False   # ← trigger a retry
 
 
         
+        
+        # --------------------------------------------------------------------
+        # helpers shared by every channel
+        # --------------------------------------------------------------------
+        def _csv_ready(well, pos):
+            base  = os.path.join(directory, "cellProfiler_results")
+            fname = f"results_{well}_{pos}.csv"
+            return (
+                os.path.isfile(os.path.join(base, fname))
+                or os.path.isfile(os.path.join(base, "results_per_well", fname))
+            )
+        
+        def run_single_pipeline(well, pos, files):
+            """Worker that actually invokes CellProfiler for a well/channel."""
+            if _csv_ready(well, pos):
+                print(f"[SKIP] {well}/{pos}: results CSV already present")
+                return True
+
+            # ----------------------------------------------------------------
+            # Build the list of Image files belonging to this well and pos
+            # ----------------------------------------------------------------
+           
+ 
+        
+
+        
+        
     def get_well_groups(self, directory):
         """
-        Return a dict keyed by (well, channel) → list[(core, filename)].
-
-        core = "well_pos_id"  (e.g. A01_pos1_001)
-        channel is one of self.pipeline_paths (GFP / CY5 / RFP / DAPI / Bright Field).
+        Return a dict keyed by (well, pos): (channel, filename)
+        channel is one of self.pipeline_paths (GFP / CY5 / RFP / DAPI / Bright Field/ masks).
+        filename is relative to the directory, not an absolute path
         """
         z_by_channel = {
         "Bright Field": "Z0",
@@ -446,8 +512,9 @@ class App:
             expected_z = z_by_channel.get(channel)
             if z != expected_z:
                 continue
-
-            groups.setdefault((well, pos), []).append((channel, fname))
+            
+            path = os.path.normpath(os.path.join(directory, fname))
+            groups.setdefault((well, pos), []).append((channel, path))
         
         mask_root = os.path.join(directory, "bf_merged", "model_outputs")
         if os.path.isdir(mask_root):
@@ -456,8 +523,8 @@ class App:
                 pattern = os.path.join(mask_root, "*", f"{well}_{pos}_merged_*_cp_masks.tif")
                 found = glob(pattern)
                 if found:
-                    relative_mask_path = os.path.relpath(os.path.normpath(found[0]), start=directory)
-                    groups[key].append(("mask", relative_mask_path))
+                    norm_path = os.path.normpath(found[0])
+                    groups[key].append(("mask", norm_path))
         return groups
 
     def _process_with_cellpose(self, dirs, process_with_cellProfiler=True): 
