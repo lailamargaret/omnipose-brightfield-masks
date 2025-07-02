@@ -572,13 +572,13 @@ class App:
                     lock = threading.Lock()
 
                     print(f'Starting consumer thread')
-                    consumer_thread = threading.Thread(target=omnipose_brightfield_forgui.consumer, args=(output_dir, lock, dir_queue, 4))
+                    consumer_thread = threading.Thread(target=omnipose_brightfield_forgui.consumer, args=(output_dir, lock, dir_queue, 8))
                     consumer_thread.start()
 
                     print(f'Starting producer')
                     subdir = os.path.basename(inputDir)
                     base_input = os.path.dirname(inputDir)
-                    omnipose_brightfield_forgui.producer(base_input, subdir, output_dir, dir_queue, 4)
+                    omnipose_brightfield_forgui.producer(base_input, subdir, output_dir, dir_queue, 8)
 
                     dir_queue.put(None)
                     consumer_thread.join()

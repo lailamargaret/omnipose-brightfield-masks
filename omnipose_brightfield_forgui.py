@@ -6,22 +6,22 @@ import time
 import threading
 import queue
 
-def producer(inputDir, subdir, outputDir, queue):
-    subdir = make_multi_channels.make_multi_channels_reorder(inputDir, subdir, outputDir, 4)
+def producer(inputDir, subdir, outputDir, queue, threads=4):
+    subdir = make_multi_channels.make_multi_channels_reorder(inputDir, subdir, outputDir, threads)
     queue.put(subdir)
 
-def producer_worker(inputDir, outputDir, dir_queue):
+def producer_worker(inputDir, outputDir, dir_queue, threads=4):
     subdirs = [d for d in os.listdir(inputDir) if os.path.isdir(os.path.join(inputDir, d)) and not "epoch" in d and not "bf_merged" in d]
     
     for subdir in subdirs:
         while dir_queue.full():
             time.sleep(0.25)
 
-        producer(inputDir, subdir, outputDir, dir_queue)
+        producer(inputDir, subdir, outputDir, dir_queue, threads)
     
     dir_queue.put(None)
 
-def consumer(outputDir, lock, queue):
+def consumer(outputDir, lock, queue, threads=4):
     while True:
         subdir = queue.get()
         if subdir is None:
@@ -32,13 +32,13 @@ def consumer(outputDir, lock, queue):
         dead_dir = None
         for model_info_array in PRETRAINED_MODEL_INFOS:
             try:
-                live_dir = omnipose_threaded.run_omnipose(merged_img_dir, model_info_array, save_tif=True, save_flows=False, save_outlines=False, num_threads=4)
+                live_dir = omnipose_threaded.run_omnipose(merged_img_dir, model_info_array, save_tif=True, save_flows=False, save_outlines=False, num_threads=threads)
                 results_csv = process_masks.process_mask_files(live_dir, CM_PER_PIXEL, PLATE_AREAS.get(PLATE_TYPE), force_save=False, filter_min_size=None)
             except Exception as e:
                 print(f"Error processing directory {merged_img_dir} with {model_info_array}: {e}")
         if DEAD_MODEL_INFO:
             try:
-                dead_dir = omnipose_threaded.run_omnipose(merged_img_dir, DEAD_MODEL_INFO[0], save_tif=True, save_flows=True, save_outlines=False, num_threads=2)
+                dead_dir = omnipose_threaded.run_omnipose(merged_img_dir, DEAD_MODEL_INFO[0], save_tif=True, save_flows=True, save_outlines=False, num_threads=threads)
                 results_csv = process_masks.process_mask_files(dead_dir, CM_PER_PIXEL, PLATE_AREAS.get(PLATE_TYPE), force_save=False, filter_min_size=None)
             except Exception as e:
                 print(f"Error processing directory {merged_img_dir} with dead model: {e}")
@@ -66,7 +66,7 @@ CM_PER_PIXEL = CM_PER_MICRON*MICRONS_PER_PIXEL
 
 PRETRAINED_MODEL_INFOS = [
     #10x NPC
-    [r"Z:Wellslab\ToolsAndScripts\OmniposeBrightfieldMasks\cellpose_residual_on_style_on_concatenation_off_omni_abstract_nclasses_2_nchan_3_dim_2_NEW-MERGED-TRAIN-FROM-DAPI_2024_03_29_02_03_10.875324_epoch_960", 0.4, 0],
+    [r"Z:\Wellslab\ToolsAndScripts\OmniposeBrightfieldMasks\cellpose_residual_on_style_on_concatenation_off_omni_abstract_nclasses_2_nchan_3_dim_2_NEW-MERGED-TRAIN-FROM-DAPI_2024_03_29_02_03_10.875324_epoch_960", 0.4, 0],
     ]
 
 DEAD_MODEL_INFO = None

@@ -10,9 +10,12 @@ import shutil
 
 def run_on_subset(images_subset, model_info_array, savedir, save_tif, save_flows, save_outlines):
     time.sleep(random.uniform(0, 10))
+    tempdir = f"Z:/Wellslab/ToolsAndScripts/OmniposeBrightfieldMasks/tempdir/temp_{random.randint(0, 99999)}_{random.randint(0, 99999)}"
+    savedir = os.path.normpath(savedir)
+    savedir = savedir.replace("\\", "/")
     print(f"run subset called {savedir}")
 
-    tempdir = f"Z:Wellslab/ToolsAndScripts/OmniposeBrightfieldMasks/tempdir/temp_{random.randint(0, 99999)}_{random.randint(0, 99999)}"
+
     os.makedirs(tempdir, exist_ok=True)
     for image in images_subset:
         symlink_path = os.path.join(tempdir, os.path.basename(image))
@@ -36,7 +39,7 @@ def run_on_subset(images_subset, model_info_array, savedir, save_tif, save_flows
         "--pretrained_model", model_info_array[0],
         "--savedir", savedir,
         "--all_channels",
-        "--nchan", model_info_array[0].split("nchan_")[1][0]
+        "--nchan", model_info_array[0].split("nchan_")[1][0], "--verbose"
     ]
 
     if save_tif:
@@ -46,9 +49,12 @@ def run_on_subset(images_subset, model_info_array, savedir, save_tif, save_flows
     if save_outlines:
         cmd_base.append("--save_outlines")
 
-    cmd = ["conda", "run", "-n", "omnipose", "-v"] + cmd_base
-    print(f'Running omnipose command')
-    subprocess.run(cmd)
+    cmd = ["C:\\Users\\Wells\\miniconda3\\Scripts\\conda.exe", "run", "-n", "omnipose", "-v"] + cmd_base
+    #print(f'Running omnipose command for {cmd}')
+    
+    subprocess.run(cmd, capture_output=True, text=True)
+    
+
 
 def run_omnipose(directory_path, model_info_array, save_tif, save_flows, save_outlines, num_threads=4):
     print(f"Starting omnipose proccessing in: {directory_path}")
